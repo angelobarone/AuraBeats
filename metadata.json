@@ -1,0 +1,8 @@
+{
+  "name": "Remix: AuraBeats",
+  "description": "Sincronizzatore ed adattatore musicale basato sulla biometria dello smartwatch ed Health Connect.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
