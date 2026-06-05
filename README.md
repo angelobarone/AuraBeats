@@ -1,4 +1,4 @@
-# Remix: AuraBeats 🎧📈
+# AuraBeats 🎧📈
 
 **Sincronizzatore ed adattatore musicale basato sulla biometria dello smartwatch ed Health Connect.**
 
