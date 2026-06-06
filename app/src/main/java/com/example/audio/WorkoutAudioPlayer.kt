@@ -24,7 +24,7 @@ import android.media.audiofx.Equalizer
 class WorkoutAudioPlayer(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
     // Store all received wav tracks so we can loop and transition them
-    private val receivedWavs = mutableListOf<File>()
+    private var receivedWavs = mutableListOf<File>()
     private var currentWavIndex = -1
     private var isTransitioning = false
 
@@ -393,12 +393,16 @@ class WorkoutAudioPlayer(private val context: Context) {
     }
 
 
-    fun playWav(file: File) {
+    fun playWav(file: File, newStyle: Boolean) {
         stopSynth()
-
-        // 1. Aggiungiamo alla coda se non presente (in modo sicuro)
-        if (!receivedWavs.contains(file)) {
+        if (newStyle) {
+            receivedWavs = mutableListOf<File>()
             receivedWavs.add(file)
+        } else {
+            // 1. Aggiungiamo alla coda se non presente (in modo sicuro)
+            if (!receivedWavs.contains(file)) {
+                receivedWavs.add(file)
+            }
         }
 
         _isSynthFallback.value = false

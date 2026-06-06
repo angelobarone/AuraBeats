@@ -124,7 +124,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                     audioPlayer.setWeightliftingTracks(downloadedFiles[0], downloadedFiles[1])
                     audioPlayer.updateWeightliftingHeartRate(70.0) // Initial HR
                 } else {
-                    audioPlayer.playWav(downloadedFiles[0])
+                    audioPlayer.playWav(downloadedFiles[0], false)
                 }
             } else {
                 _serverFeedback.value = "Server offline. Modalità Sintetizzatore Intelligente attivata!"
@@ -205,6 +205,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         val currentBiometrics = healthManager.currentBiometrics.value
         val url = _serverUrl.value
         val activity = _selectedActivity.value
+        var newStyle = false
 
         // Compute averages over the sync window
         val avgHr = if (intervalHeartRateSnapshot.isNotEmpty()) {
@@ -223,6 +224,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         val liveNote = _livePreferencesNote.value.trim().ifEmpty { null }
 
         if (liveNote != null) {
+            newStyle = true
             viewModelScope.launch {
                 repository.updateSessionPreferences(sessionId, liveNote)
             }
@@ -252,7 +254,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                     audioPlayer.setWeightliftingTracks(downloadedFiles[0], downloadedFiles[1])
                     audioPlayer.updateWeightliftingHeartRate(currentBiometrics.heartRate)
                 } else {
-                    audioPlayer.playWav(downloadedFiles[0])
+                    audioPlayer.playWav(downloadedFiles[0], newStyle)
                 }
                 _livePreferencesNote.value = "" // Reset post submission
             } else {
