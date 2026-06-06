@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import android.media.audiofx.BassBoost
+import android.media.audiofx.Equalizer
 
 class WorkoutAudioPlayer(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
@@ -30,6 +32,10 @@ class WorkoutAudioPlayer(private val context: Context) {
     private var weightliftingTracks: Pair<File, File>? = null
     private var isWeightliftingActive = false
     private var currentWeightliftingTrackIndex = -1
+
+    private var bassBoost: BassBoost? = null
+
+    private var equalizer: Equalizer? = null
 
     private var tempoJob: Job? = null
 
@@ -70,7 +76,10 @@ class WorkoutAudioPlayer(private val context: Context) {
                     prepare()
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        playbackParams = PlaybackParams().apply { speed = _currentTempo.value }
+                        playbackParams = PlaybackParams().apply {
+                            speed = _currentTempo.value
+                            pitch = _currentTempo.value
+                        }
                     }
                 }
 
@@ -99,7 +108,10 @@ class WorkoutAudioPlayer(private val context: Context) {
                     prepare()
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        playbackParams = PlaybackParams().apply { speed = _currentTempo.value }
+                        playbackParams = PlaybackParams().apply {
+                            speed = _currentTempo.value
+                            pitch = _currentTempo.value
+                        }
                     }
 
                     setVolume(0f, 0f)
@@ -229,7 +241,7 @@ class WorkoutAudioPlayer(private val context: Context) {
                     // 2. Assicurati che il player sia effettivamente in esecuzione
                     if (!player.isPlaying) continue
 
-                    if (wavSize > 1) {
+                    if (wavSize > 0) {
                         val duration = player.duration
                         val pos = player.currentPosition
                         val timeRemaining = duration - pos
@@ -238,12 +250,6 @@ class WorkoutAudioPlayer(private val context: Context) {
                         if (duration > 0 && timeRemaining < 2000) {
                             Log.d("AudioPlayer", "Track near end ($timeRemaining ms remaining), triggering next...")
                             triggerNextTrackTransition()
-                        }
-                    } else if (wavSize == 1) {
-                        // Se c'è solo una traccia, assicurati che sia in loop
-                        if (!player.isLooping) {
-                            player.isLooping = true
-                            Log.d("AudioPlayer", "Single track detected, enabled looping fallback.")
                         }
                     }
                 } catch (e: IllegalStateException) {
@@ -287,7 +293,6 @@ class WorkoutAudioPlayer(private val context: Context) {
                 Log.d("AudioPlayer", "Auto-transition triggered to track $nextIndex: ${nextFile.name}")
 
                 // Chiamiamo crossfadeTo.
-                // NOTA BENE: ci aspettiamo che crossfadeTo gestisca `isTransitioning = false`
                 // nel suo blocco `finally`, esattamente come abbiamo fatto in `playWeightliftingTrack`.
                 crossfadeTo(nextFile, nextIndex)
 
@@ -308,12 +313,13 @@ class WorkoutAudioPlayer(private val context: Context) {
             try {
                 newPlayer.apply {
                     setDataSource(nextFile.absolutePath)
-                    isLooping = false // Mantenuto a false perché fa parte della playlist ciclica
+                    isLooping = false
                     prepare()
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         playbackParams = PlaybackParams().apply {
                             speed = _currentTempo.value
+                            pitch = _currentTempo.value
                         }
                     }
 
@@ -335,10 +341,12 @@ class WorkoutAudioPlayer(private val context: Context) {
                 for (i in 1..steps) {
                     val fraction = i.toFloat() / steps
 
+                    val safeVolume = fraction * 0.85f
+
                     // Alziamo il volume del nuovo player
                     try {
                         if (newPlayer.isPlaying) {
-                            newPlayer.setVolume(fraction, fraction)
+                            newPlayer.setVolume(safeVolume, safeVolume)
                         }
                     } catch (e: Exception) { /* Ignora stati transitori illegali */ }
 
@@ -346,7 +354,7 @@ class WorkoutAudioPlayer(private val context: Context) {
                     if (oldPlayer != null) {
                         try {
                             if (oldPlayer.isPlaying) {
-                                val oldVolume = 1.0f - fraction
+                                val oldVolume = (1.0f - fraction) * 0.85f
                                 oldPlayer.setVolume(oldVolume, oldVolume)
                             }
                         } catch (e: Exception) { /* Ignora */ }
@@ -405,11 +413,15 @@ class WorkoutAudioPlayer(private val context: Context) {
             try {
                 val player = MediaPlayer().apply {
                     setDataSource(file.absolutePath)
-                    isLooping = (receivedWavs.size == 1)
+                    isLooping = false//(receivedWavs.size == 1)
                     prepare()
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        playbackParams = PlaybackParams().apply { speed = _currentTempo.value }
+                        // FIX APPLICATO QUI: Impostiamo SIA speed CHE pitch!
+                        playbackParams = PlaybackParams().apply {
+                            speed = _currentTempo.value
+                            pitch = _currentTempo.value
+                        }
                     }
                 }
 
@@ -424,16 +436,12 @@ class WorkoutAudioPlayer(private val context: Context) {
         } else {
             // 3. Se c'è già un player, eseguiamo il crossfade
             if (newIndex >= 0) {
-                // Prevenzione sovrapposizioni crossfade
                 if (isTransitioning) {
                     Log.w("AudioPlayer", "Ignored playWav for ${file.name}: crossfade already in progress.")
                     return
                 }
 
                 isTransitioning = true
-
-                // crossfadeTo lancia già internamente synthScope.launch(Dispatchers.Default),
-                // quindi possiamo chiamarlo direttamente senza ulteriori wrapper inutili.
                 crossfadeTo(file, newIndex)
             }
         }
@@ -443,30 +451,29 @@ class WorkoutAudioPlayer(private val context: Context) {
         val bounded = multiplier.coerceIn(0.5f, 2.0f)
         val targetTempo = Math.round(bounded * 100f) / 100f
 
-        // 1. Evita aggiornamenti ridondanti per risparmiare risorse
+        // 1. Evita aggiornamenti ridondanti
         if (_currentTempo.value == targetTempo) return
 
         Log.d("AudioPlayer", "Requesting tempo shift: ${_currentTempo.value} -> $targetTempo")
 
-        // 2. Cancella eventuali transizioni di tempo in corso per evitare sovrapposizioni (Debounce)
         tempoJob?.cancel()
 
-        // Fallback per dispositivi molto vecchi (Android < 6.0)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             _currentTempo.value = targetTempo
             return
         }
 
-        // 3. Applicazione Istantanea vs Fluida
         if (!smoothTransition) {
             applyTempoToPlayer(targetTempo)
         } else {
-            // 4. Crea una transizione DJ-style fluida (ramping) su 500ms
             tempoJob = synthScope.launch(Dispatchers.Default) {
                 val startTempo = _currentTempo.value
                 val diff = targetTempo - startTempo
-                val steps = 10
-                val delayMs = 50L // 10 steps * 50ms = 500ms totali di transizione
+
+                // Inviare nuovi PlaybackParams ogni 50ms faceva impazzire il buffer
+                // del MediaPlayer causando micro-scatti. 125ms dà il tempo di ricalcolare l'audio.
+                val steps = 4
+                val delayMs = 125L // 4 steps * 125ms = 500ms totali
 
                 for (i in 1..steps) {
                     val currentStepTempo = startTempo + (diff * (i.toFloat() / steps))
@@ -474,11 +481,12 @@ class WorkoutAudioPlayer(private val context: Context) {
                     delay(delayMs)
                 }
 
-                // Assicura che l'ultimo step corrisponda esattamente al valore target richiesto
+                // Ultimo step per garantire la precisione
                 applyTempoToPlayer(targetTempo)
             }
         }
     }
+
 
     private fun applyTempoToPlayer(tempo: Float) {
         val rounded = Math.round(tempo * 100f) / 100f
@@ -489,16 +497,14 @@ class WorkoutAudioPlayer(private val context: Context) {
             if (player?.isPlaying == true && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 val params = player.playbackParams ?: PlaybackParams()
 
-                // Pitch Lock: Mantiene l'intonazione originale alterando solo la velocità.
-                // Questo forza l'algoritmo di time-stretching, impedendo l'effetto voce da scoiattolo.
                 params.speed = rounded
-                params.pitch = 1.0f
+
+                // leghiamo il pitch alla speed. Questo crea un effetto "Vinile" o "CDJ".
+                params.pitch = rounded
 
                 player.playbackParams = params
             }
         } catch (e: Exception) {
-            // Se il player è in uno stato transitorio (es. durante un crossfade),
-            // impostare i parametri potrebbe lanciare un'eccezione temporanea.
             Log.w("AudioPlayer", "Ignored tempo adjustment during invalid player state.")
         }
     }
@@ -543,6 +549,10 @@ class WorkoutAudioPlayer(private val context: Context) {
     }
 
     fun stop() {
+        try {
+            equalizer?.release()
+            equalizer = null
+        } catch (e: Exception) {}
         stopSynth()
         stopMediaPlayer()
         receivedWavs.clear()
