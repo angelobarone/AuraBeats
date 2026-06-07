@@ -201,11 +201,11 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    var newStyle = false
     private suspend fun triggerPeriodicFastApiUpdate(sessionId: Long) {
         val currentBiometrics = healthManager.currentBiometrics.value
         val url = _serverUrl.value
         val activity = _selectedActivity.value
-        var newStyle = false
 
         // Compute averages over the sync window
         val avgHr = if (intervalHeartRateSnapshot.isNotEmpty()) {
@@ -255,6 +255,7 @@ class WorkoutViewModel(application: Application) : AndroidViewModel(application)
                     audioPlayer.updateWeightliftingHeartRate(currentBiometrics.heartRate)
                 } else {
                     audioPlayer.playWav(downloadedFiles[0], newStyle)
+                    newStyle = false
                 }
                 _livePreferencesNote.value = "" // Reset post submission
             } else {
